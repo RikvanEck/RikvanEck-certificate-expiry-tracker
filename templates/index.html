@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Certificate Expiry Tracker</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0f0d;
+    color: #e2e8e4;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  header {
+    background: #0d1510;
+    border-bottom: 1px solid #1a2e1f;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .logo {
+    width: 34px; height: 34px;
+    background: linear-gradient(135deg, #22c55e, #15803d);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 600; color: #f0fdf4; }
+  .demo-badge {
+    font-size: 0.72rem;
+    color: #4ade80;
+    background: #052e16;
+    border: 1px solid #166534;
+    padding: 2px 8px;
+    border-radius: 99px;
+    margin-left: 4px;
+  }
+
+  /* ── Layout ── */
+  .main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 36px 20px 60px;
+  }
+
+  /* ── Card base ── */
+  .card {
+    background: #0d1510;
+    border: 1px solid #1a2e1f;
+    border-radius: 16px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+  }
+  .card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #bbf7d0;
+    margin-bottom: 4px;
+  }
+  .card-sub {
+    font-size: 0.82rem;
+    color: #3a5c47;
+    margin-bottom: 20px;
+  }
+
+  /* ── Drop zone ── */
+  .drop-zone {
+    border: 2px dashed #1f4d31;
+    border-radius: 12px;
+    padding: 36px 24px;
+    text-align: center;
+    background: #071009;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 16px;
+    user-select: none;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: #22c55e;
+    background: #081410;
+  }
+  .drop-icon { font-size: 2.4rem; margin-bottom: 10px; pointer-events: none; }
+  .drop-primary { color: #d1fae5; font-size: 0.9rem; pointer-events: none; }
+  .drop-primary span { color: #4ade80; text-decoration: underline; }
+  .drop-secondary { color: #2d5240; font-size: 0.78rem; margin-top: 4px; pointer-events: none; }
+  #file-input { display: none; }
+
+  /* ── File chips ── */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; min-height: 0; }
+  .chip {
+    background: #071a0e;
+    border: 1px solid #1a3d24;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.78rem;
+    color: #86efac;
+    display: flex; align-items: center; gap: 6px;
+    max-width: 260px;
+  }
+  .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-remove {
+    color: #2d5240;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .chip-remove:hover { color: #f87171; }
+
+  /* ── Submit button ── */
+  .btn-extract {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: #f0fdf4;
+    border: none;
+    border-radius: 10px;
+    padding: 11px 28px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    box-shadow: 0 0 24px rgba(34,197,94,0.18);
+    transition: opacity 0.15s, box-shadow 0.15s;
+  }
+  .btn-extract:hover:not(:disabled) { box-shadow: 0 0 32px rgba(34,197,94,0.32); }
+  .btn-extract:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ── Progress ── */
+  #progress-wrap {
+    display: none;
+    background: #0d1510;
+    border: 1px solid #1a2e1f;
+    border-radius: 12px;
+    padding: 14px 22px;
+    margin-bottom: 24px;
+    align-items: center;
+    gap: 16px;
+  }
+  #progress-wrap.visible { display: flex; }
+  #progress-label { font-size: 0.82rem; color: #4ade80; white-space: nowrap; }
+  .progress-track { flex: 1; background: #1a2e1f; border-radius: 99px; height: 6px; overflow: hidden; }
+  #progress-fill {
+    width: 0%;
+    background: linear-gradient(90deg, #16a34a, #4ade80);
+    border-radius: 99px;
+    height: 6px;
+    box-shadow: 0 0 8px rgba(74,222,128,0.5);
+    transition: width 0.35s ease;
+  }
+
+  /* ── Results ── */
+  #results-card { display: none; }
+  #results-card.visible { display: block; }
+
+  .results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 28px;
+    border-bottom: 1px solid #1a2e1f;
+  }
+  .results-title { font-size: 0.95rem; font-weight: 600; color: #bbf7d0; }
+  .results-count {
+    font-size: 0.78rem;
+    color: #4ade80;
+    background: #052e16;
+    border: 1px solid #166534;
+    padding: 2px 8px;
+    border-radius: 99px;
+    margin-left: 8px;
+  }
+  .btn-csv {
+    background: transparent;
+    border: 1px solid #1f4d31;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    color: #4ade80;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .btn-csv:hover { border-color: #22c55e; background: #071009; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  thead tr { background: #071009; }
+  th {
+    text-align: left;
+    padding: 11px 16px;
+    color: #2d7a4e;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid #1a2e1f;
+    white-space: nowrap;
+  }
+  td { padding: 11px 16px; border-bottom: 1px solid #0f1f14; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #0a140d; }
+
+  .td-filename { color: #d1fae5; font-weight: 500; max-width: 220px; word-break: break-all; }
+  .td-desc { color: #4b6357; max-width: 280px; }
+  .td-date { font-weight: 600; white-space: nowrap; }
+  .date-expired { color: #f87171; }
+  .date-soon    { color: #fbbf24; }
+  .date-valid   { color: #4ade80; }
+  .date-unknown { color: #2d5240; }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 99px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge-expired { background: #2d0808; color: #f87171; border: 1px solid #7f1d1d; }
+  .badge-soon    { background: #1c1007; color: #fbbf24; border: 1px solid #78350f; }
+  .badge-valid   { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .badge-unknown { background: #0f1f14; color: #2d5240; border: 1px solid #1a2e1f; }
+
+  /* ── Error toast ── */
+  #error-msg {
+    display: none;
+    background: #2d0808;
+    border: 1px solid #7f1d1d;
+    border-radius: 10px;
+    padding: 12px 18px;
+    color: #f87171;
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+  }
+  #error-msg.visible { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🔐</div>
+  <h1>Certificate Expiry Tracker</h1>
+  <span class="demo-badge">Demo</span>
+</header>
+
+<div class="main">
+
+  <!-- Upload card -->
+  <div class="card">
+    <div class="card-title">Upload Certificates</div>
+    <div class="card-sub">Select one or more PDF certificate files — AI will extract expiration dates and generate a summary</div>
+
+    <div class="drop-zone" id="drop-zone">
+      <div class="drop-icon">📄</div>
+      <div class="drop-primary">Drop PDFs here or <span>click to browse</span></div>
+      <div class="drop-secondary">Multiple files supported · PDF only</div>
+    </div>
+    <input type="file" id="file-input" accept=".pdf" multiple>
+
+    <div class="chips" id="chips"></div>
+
+    <button class="btn-extract" id="btn-extract" disabled>Extract Expiry Dates →</button>
+  </div>
+
+  <!-- Error -->
+  <div id="error-msg"></div>
+
+  <!-- Progress -->
+  <div id="progress-wrap">
+    <span id="progress-label">Processing…</span>
+    <div class="progress-track"><div id="progress-fill"></div></div>
+  </div>
+
+  <!-- Results -->
+  <div class="card" id="results-card" style="padding:0">
+    <div class="results-header">
+      <div>
+        <span class="results-title">Results</span>
+        <span class="results-count" id="results-count">0</span>
+      </div>
+      <button class="btn-csv" id="btn-csv">⬇ Download CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>File Name</th>
+            <th>Certificate Description</th>
+            <th>Expiry Date ↑</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const dropZone    = document.getElementById('drop-zone');
+  const fileInput   = document.getElementById('file-input');
+  const chipsEl     = document.getElementById('chips');
+  const btnExtract  = document.getElementById('btn-extract');
+  const progressWrap = document.getElementById('progress-wrap');
+  const progressFill = document.getElementById('progress-fill');
+  const progressLabel = document.getElementById('progress-label');
+  const resultsCard = document.getElementById('results-card');
+  const tableBody   = document.getElementById('table-body');
+  const resultsCount = document.getElementById('results-count');
+  const btnCsv      = document.getElementById('btn-csv');
+  const errorMsg    = document.getElementById('error-msg');
+
+  let files = []; // DataTransfer-like file list
+
+  // ── Drop zone ──────────────────────────────────
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addFiles([...e.dataTransfer.files].filter(f => f.type === 'application/pdf'));
+  });
+
+  fileInput.addEventListener('change', () => {
+    addFiles([...fileInput.files]);
+    fileInput.value = '';
+  });
+
+  function addFiles(newFiles) {
+    newFiles.forEach(f => {
+      if (!files.find(x => x.name === f.name)) files.push(f);
+    });
+    renderChips();
+  }
+
+  function renderChips() {
+    chipsEl.innerHTML = '';
+    files.forEach((f, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.innerHTML = `<span class="chip-name" title="${f.name}">📄 ${f.name}</span><span class="chip-remove" data-i="${i}">✕</span>`;
+      chipsEl.appendChild(chip);
+    });
+    chipsEl.querySelectorAll('.chip-remove').forEach(btn => {
+      btn.addEventListener('click', () => { files.splice(+btn.dataset.i, 1); renderChips(); });
+    });
+    btnExtract.disabled = files.length === 0;
+  }
+
+  // ── Extract ───────────────────────────────────
+  btnExtract.addEventListener('click', async () => {
+    if (!files.length) return;
+
+    errorMsg.classList.remove('visible');
+    resultsCard.classList.remove('visible');
+    progressWrap.classList.add('visible');
+    progressFill.style.width = '0%';
+    progressLabel.textContent = `Submitting ${files.length} file${files.length > 1 ? 's' : ''}…`;
+    btnExtract.disabled = true;
+
+    // Animate indeterminate progress while waiting
+    let fake = 0;
+    const fakeTimer = setInterval(() => {
+      fake = Math.min(fake + 2, 85);
+      progressFill.style.width = fake + '%';
+    }, 300);
+
+    try {
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+
+      progressLabel.textContent = `Processing ${files.length} certificate${files.length > 1 ? 's' : ''} with AI…`;
+
+      const res = await fetch('/extract', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+
+      clearInterval(fakeTimer);
+      progressFill.style.width = '100%';
+      progressLabel.textContent = `Done — ${data.length} certificate${data.length !== 1 ? 's' : ''} processed`;
+
+      setTimeout(() => {
+        progressWrap.classList.remove('visible');
+        renderTable(data);
+      }, 800);
+
+    } catch (err) {
+      clearInterval(fakeTimer);
+      progressWrap.classList.remove('visible');
+      errorMsg.textContent = `Error: ${err.message}`;
+      errorMsg.classList.add('visible');
+    } finally {
+      btnExtract.disabled = files.length === 0;
+    }
+  });
+
+  // ── Render table ──────────────────────────────
+  function renderTable(rows) {
+    resultsCount.textContent = rows.length;
+    tableBody.innerHTML = '';
+
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+
+      const dateClass = {
+        expired: 'date-expired', soon: 'date-soon',
+        valid: 'date-valid', unknown: 'date-unknown'
+      }[row.status] || 'date-unknown';
+
+      const badgeClass = {
+        expired: 'badge-expired', soon: 'badge-soon',
+        valid: 'badge-valid', unknown: 'badge-unknown'
+      }[row.status] || 'badge-unknown';
+
+      const badgeLabel = {
+        expired: 'Expired', soon: 'Expiring soon',
+        valid: 'Valid', unknown: 'Unknown'
+      }[row.status] || 'Unknown';
+
+      const displayDate = row.expiry_date_str || '—';
+
+      tr.innerHTML = `
+        <td class="td-filename">${esc(row.filename)}</td>
+        <td class="td-desc">${esc(row.description || '—')}</td>
+        <td class="td-date ${dateClass}">${esc(displayDate)}</td>
+        <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+      `;
+      tableBody.appendChild(tr);
+    });
+
+    resultsCard.classList.add('visible');
+    resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Store for CSV
+    resultsCard.dataset.rows = JSON.stringify(rows);
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── CSV download ──────────────────────────────
+  btnCsv.addEventListener('click', () => {
+    const rows = JSON.parse(resultsCard.dataset.rows || '[]');
+    const header = ['File Name', 'Certificate Description', 'Expiry Date', 'Status'];
+    const lines = [
+      header.join(','),
+      ...rows.map(r => [
+        csvCell(r.filename),
+        csvCell(r.description),
+        csvCell(r.expiry_date_str || ''),
+        csvCell(r.status)
+      ].join(','))
+    ];
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'certificate_expiry_report.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  function csvCell(val) {
+    const s = String(val || '').replace(/"/g, '""');
+    return /[,"\r\n]/.test(s) ? `"${s}"` : s;
+  }
+</script>
+</body>
+</html>
