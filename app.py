@@ -5,15 +5,25 @@ import tempfile
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template
 import pdfplumber
-import google.generativeai as genai
+from google import genai
 
 app = Flask(__name__)
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+# Client is created lazily on first request so the app starts even if the
+# env var hasn't been set yet (gives a clear error on the /extract call instead)
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY environment variable is not set. Add it in Railway → Variables.")
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 PROMPT_TEMPLATE = """You are analyzing a certificate document. Extract:
-1. The expiration/validity date (look for phrases like "valid until", "expiry date", "expires", "expire date", "valid to", "expiration date", "valid through", "date of expiry", or similar)
+1. The expiration/validity date (look for phrases like "valid until", "expiry date", "expires", "expire date", "valid to", "expiration date", "valid through", "date of expiry", "not valid after", or similar)
 2. A short one-line description of what this certificate is (e.g. "Lloyd's Register Class Certificate")
 
 Respond ONLY with valid JSON, no markdown, no extra text:
@@ -43,17 +53,21 @@ def extract_text(path):
 
 
 def call_gemini(text, retries=3):
+    client = get_client()
     prompt = PROMPT_TEMPLATE.format(text=text[:4000])
     for attempt in range(retries):
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=prompt,
+            )
             raw = response.text.strip()
             if raw.startswith("```"):
                 raw = raw.strip("`").lstrip("json").strip()
             return json.loads(raw)
         except Exception as e:
             if attempt < retries - 1 and "429" in str(e):
-                time.sleep(5 * (attempt + 1))  # 5s, 10s back-off
+                time.sleep(5 * (attempt + 1))
             else:
                 raise
 
@@ -113,16 +127,14 @@ def extract():
                 row["description"] = "Could not extract text from PDF"
 
         except Exception as e:
-            row["description"] = f"Error processing file: {str(e)}"
+            row["description"] = f"Error: {str(e)}"
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
         results.append(row)
 
-    # Sort: known dates ascending, unknowns at bottom
     results.sort(key=lambda x: (x["expiry_date"] is None, x["expiry_date"] or ""))
-
     return jsonify(results)
 
 
