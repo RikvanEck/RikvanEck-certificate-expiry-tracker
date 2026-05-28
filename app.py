@@ -17,9 +17,12 @@ PROMPT_TEMPLATE = """You are analyzing a certificate document. Extract:
 2. A short one-line description of what this certificate is (e.g. "Lloyd's Register Class Certificate")
 
 Respond ONLY with valid JSON, no markdown, no extra text:
-{{"expiry_date": "DD MMM YYYY", "description": "one-line description"}}
+{{"expiry_date": "DD MMM YYYY or null or permanent", "description": "one-line description"}}
 
-If no expiry date is found, use null for expiry_date.
+Rules:
+- If an expiry date is found, return it as "DD MMM YYYY"
+- If the certificate explicitly states it is permanent, does not expire, or has no expiry, return "permanent"
+- If no date is found and it's not stated as permanent, return null
 
 Certificate text:
 {text}"""
@@ -116,7 +119,10 @@ def extract():
                 data = call_ai(text)
                 row["description"] = data.get("description", "")
                 expiry_str = data.get("expiry_date")
-                if expiry_str and expiry_str != "null":
+                if expiry_str == "permanent":
+                    row["expiry_date_str"] = "Permanent"
+                    row["status"] = "permanent"
+                elif expiry_str and expiry_str != "null":
                     row["expiry_date_str"] = expiry_str
                     parsed = parse_date(expiry_str)
                     row["expiry_date"] = str(parsed) if parsed else None
