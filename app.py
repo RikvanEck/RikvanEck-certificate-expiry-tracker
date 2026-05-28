@@ -9,7 +9,8 @@ import pdfplumber
 
 app = Flask(__name__)
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 PROMPT_TEMPLATE = """You are analyzing a certificate document. Extract:
 1. The expiration/validity date (look for phrases like "valid until", "expiry date", "expires", "expire date", "valid to", "expiration date", "valid through", "date of expiry", "not valid after", or similar)
@@ -41,28 +42,29 @@ def extract_text(path):
     return "\n".join(parts).strip()
 
 
-def call_gemini(text, retries=3):
-    api_key = os.environ.get("GEMINI_API_KEY")
+def call_ai(text, retries=3):
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
+        raise RuntimeError("GROQ_API_KEY environment variable is not set.")
 
     prompt = PROMPT_TEMPLATE.format(text=text[:4000])
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+    }
 
     for attempt in range(retries):
-        resp = requests.post(
-            GEMINI_URL,
-            params={"key": api_key},
-            json=payload,
-            timeout=30,
-        )
-        if resp.status_code == 429:
-            if attempt < retries - 1:
-                time.sleep(5 * (attempt + 1))
-                continue
+        resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=30)
+        if resp.status_code == 429 and attempt < retries - 1:
+            time.sleep(5 * (attempt + 1))
+            continue
         resp.raise_for_status()
-
-        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
         if raw.startswith("```"):
             raw = raw.strip("`").lstrip("json").strip()
         return json.loads(raw)
@@ -111,7 +113,7 @@ def extract():
             text = extract_text(tmp_path)
 
             if text:
-                data = call_gemini(text)
+                data = call_ai(text)
                 row["description"] = data.get("description", "")
                 expiry_str = data.get("expiry_date")
                 if expiry_str and expiry_str != "null":
