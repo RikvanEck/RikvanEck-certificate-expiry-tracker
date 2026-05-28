@@ -2,25 +2,14 @@ import os
 import json
 import time
 import tempfile
+import requests
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template
 import pdfplumber
-from google import genai
 
 app = Flask(__name__)
 
-# Client is created lazily on first request so the app starts even if the
-# env var hasn't been set yet (gives a clear error on the /extract call instead)
-_client = None
-
-def get_client():
-    global _client
-    if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY environment variable is not set. Add it in Railway → Variables.")
-        _client = genai.Client(api_key=api_key)
-    return _client
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
 
 PROMPT_TEMPLATE = """You are analyzing a certificate document. Extract:
 1. The expiration/validity date (look for phrases like "valid until", "expiry date", "expires", "expire date", "valid to", "expiration date", "valid through", "date of expiry", "not valid after", or similar)
@@ -53,23 +42,30 @@ def extract_text(path):
 
 
 def call_gemini(text, retries=3):
-    client = get_client()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
+
     prompt = PROMPT_TEMPLATE.format(text=text[:4000])
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+
     for attempt in range(retries):
-        try:
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=prompt,
-            )
-            raw = response.text.strip()
-            if raw.startswith("```"):
-                raw = raw.strip("`").lstrip("json").strip()
-            return json.loads(raw)
-        except Exception as e:
-            if attempt < retries - 1 and "429" in str(e):
+        resp = requests.post(
+            GEMINI_URL,
+            params={"key": api_key},
+            json=payload,
+            timeout=30,
+        )
+        if resp.status_code == 429:
+            if attempt < retries - 1:
                 time.sleep(5 * (attempt + 1))
-            else:
-                raise
+                continue
+        resp.raise_for_status()
+
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").lstrip("json").strip()
+        return json.loads(raw)
 
 
 def parse_date(date_str):
