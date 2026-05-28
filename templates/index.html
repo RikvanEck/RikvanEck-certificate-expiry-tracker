@@ -229,7 +229,8 @@
   .badge-expired { background: #2d0808; color: #f87171; border: 1px solid #7f1d1d; }
   .badge-soon    { background: #1c1007; color: #fbbf24; border: 1px solid #78350f; }
   .badge-valid   { background: #052e16; color: #4ade80; border: 1px solid #166534; }
-  .badge-unknown { background: #0f1f14; color: #2d5240; border: 1px solid #1a2e1f; }
+  .badge-unknown    { background: #0f1f14; color: #2d5240; border: 1px solid #1a2e1f; }
+  .badge-permanent  { background: #0f172a; color: #818cf8; border: 1px solid #3730a3; }
 
   /* ── Error toast ── */
   #error-msg {
@@ -417,17 +418,17 @@
 
       const dateClass = {
         expired: 'date-expired', soon: 'date-soon',
-        valid: 'date-valid', unknown: 'date-unknown'
+        valid: 'date-valid', unknown: 'date-unknown', permanent: 'date-unknown'
       }[row.status] || 'date-unknown';
 
       const badgeClass = {
         expired: 'badge-expired', soon: 'badge-soon',
-        valid: 'badge-valid', unknown: 'badge-unknown'
+        valid: 'badge-valid', unknown: 'badge-unknown', permanent: 'badge-permanent'
       }[row.status] || 'badge-unknown';
 
       const badgeLabel = {
         expired: 'Expired', soon: 'Expiring soon',
-        valid: 'Valid', unknown: 'Unknown'
+        valid: 'Valid', unknown: 'Unknown', permanent: 'Permanent'
       }[row.status] || 'Unknown';
 
       const displayDate = row.expiry_date_str || '—';
